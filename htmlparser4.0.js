@@ -132,7 +132,6 @@
 
 		// 解析开始标签
 		function parseStartTag( tag, tagName, rest, unary ) {
-		  debugger
 			tagName = tagName.toLowerCase();
 
 		  // 是块元素
@@ -169,12 +168,13 @@
 						arguments[4] ? arguments[4] :
             // 4、没有值，则判断是否是需要将值与key保持相同
 						fillAttrs[name] ? name : "";
-					debugger
+
 					attrs.push({
 						name: name,
 						value: value,
             // 替换以`"`开头或不含`\"`的字符
             // TODO 正则优先级：[^\]斜杠会把]转义为字符"]"，导致表达式不正确，因此要先用\把斜杠转义为字符：[^\\]
+            // TODO 纠正下：5.引用类型.md 212行
 						escaped: value.replace(/(^|[^\\])"/g, '$1\\\"') //"
 					});
 				});
