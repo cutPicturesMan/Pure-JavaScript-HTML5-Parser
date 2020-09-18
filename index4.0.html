@@ -14,8 +14,10 @@
 <script>
 var results = "";
 //console.log(HTMLtoXML("<div id=\"it\'as me\"/>abc<p id=test>hello <i>world"));
-console.log(HTMLtoXML('<div id=""ab"/>abc<p id=test>hello <i>world'));
+document.write('<div><i>1<i>2<div>3');
+console.log(HTMLtoXML(`<!--<div id='ab'/>abc<p id=test>hello <i>world-->`));
 
+console.log(HTMLtoXML(`<div><i>1<i>2<div>3`));
 
 
 

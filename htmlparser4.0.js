@@ -22,14 +22,15 @@
  * HTMLtoDOM(htmlString, document.body);
  *
  */
-
+// 将字符串解析成html格式
+// 本质上是解析到单标签时直接处理，解析到双标签时，遇到开始标签对stack数组进行入栈操作，遇到结束标签对stack数组进行出栈操作
 (function(){
 
 	// Regular Expressions for parsing tags and attributes
 	var startTag = /^<([-A-Za-z0-9_]+)((?:\s+\w+(?:\s*=\s*(?:(?:"[^"]*")|(?:'[^']*')|[^>\s]+))?)*)\s*(\/?)>/,
 		endTag = /^<\/([-A-Za-z0-9_]+)[^>]*>/,
     // TODO 没明白属性值的判断(?:\\.|[^"])*)为啥要加上\\.
-		attr = /([-A-Za-z0-9_]+)(?:\s*=\s*(?:(?:"((?:[^"])*)")|(?:'((?:\\.|[^'])*)')|([^>\s]+)))?/g;
+		attr = /([-A-Za-z0-9_]+)(?:\s*=\s*(?:(?:"((?:\\.|[^"])*)")|(?:'((?:\\.|[^'])*)')|([^>\s]+)))?/g;
 		
 	// Empty Elements - HTML 4.01
   // 空元素：不能存在子节点（内嵌的元素或者元素内的文本）的元素
@@ -43,6 +44,7 @@
 
 	// Elements that you can, intentionally, leave open
 	// (and which close themselves)
+  // 自闭标签：可以故意保持元素打开状态，其会自行闭合
 	var closeSelf = makeMap("colgroup,dd,dt,li,options,p,td,tfoot,th,thead,tr");
 
 	// Attributes that have their values filled in disabled="disabled"
@@ -50,6 +52,7 @@
 	var fillAttrs = makeMap("checked,compact,declare,defer,disabled,ismap,multiple,nohref,noresize,noshade,nowrap,readonly,selected");
 
 	// Special Elements (can contain anything)
+  // 特殊的元素：可以包含任何东西
 	var special = makeMap("script,style");
 
 	var HTMLParser = this.HTMLParser = function( html, handler ) {
@@ -65,11 +68,15 @@
       // 确保stack数组最后一个值为空 || 不为script、style，则进入下述if条件
 			if ( !stack.last() || !special[ stack.last() ] ) {
 
+			  // 按顺序从左往右解析字符串，有可能遇到：
+        // 1、开始标签、结束标签、注释标签：匹配到任意标签，则进行解析，解析完毕之后再次进入while循环
+        // 2、文本节点：如果没匹配到情况1的3种标签，则都当作文本节点处理
 				// Comment
 				if ( html.indexOf("<!--") == 0 ) {
 					index = html.indexOf("-->");
 	
 					if ( index >= 0 ) {
+					  // 注释标签是单标签，匹配到之后无需额外处理，直接传给回调函数即可
 						if ( handler.comment )
 							handler.comment( html.substring( 4, index ) );
 						html = html.substring( index + 3 );
@@ -91,20 +98,23 @@
 					match = html.match( startTag );
 	
 					if ( match ) {
-					  // 去掉匹配到的开始标签
+					  // 去掉匹配到的整个开始标签
 						html = html.substring( match[0].length );
 						match[0].replace( startTag, parseStartTag );
 						chars = false;
 					}
 				}
 
+
 				if ( chars ) {
 					index = html.indexOf("<");
-					
+
+					// 剩余的html字符串是否不存在节点 ? 不存在，说明都是文本节点 : 存在，则截取文本节点
 					var text = index < 0 ? html : html.substring( 0, index );
 					html = index < 0 ? "" : html.substring( index );
-					
-					if ( handler.chars )
+
+          // 文本节点是单节点，匹配到之后无需额外处理，直接传给回调函数即可
+          if ( handler.chars )
 						handler.chars( text );
 				}
 
@@ -126,7 +136,6 @@
 				throw "Parse Error: " + html;
 			last = html;
 		}
-		
 		// Clean up any remaining tags
 		parseEndTag();
 
@@ -134,30 +143,34 @@
 		function parseStartTag( tag, tagName, rest, unary ) {
 			tagName = tagName.toLowerCase();
 
-		  // 是块元素
+			// 自动补齐stack中所有内联元素的结束标签
+			// 唯一能自动补齐结束标签的情况是：遇到块元素的开始标签时，还有未补全的内联元素
+      // 这是因为内联元素不能包裹块元素，所以要将其补齐
 			if ( block[ tagName ] ) {
 			  // stack数组最后一个元素有值 && 是内联元素
 				while ( stack.last() && inline[ stack.last() ] ) {
-				  // TODO
+				  // 自动补全结束标签
 					parseEndTag( "", stack.last() );
 				}
 			}
 
-      // 是自闭标签 && stack数组最后一个元素与匹配到的标签同名
+			// 自动补齐stack中自闭合元素的结束标签
+      // 当自闭合标签遇到相邻未闭合的自闭合标签，可以手动将其闭合
       if ( closeSelf[ tagName ] && stack.last() == tagName ) {
-			  // TODO
 				parseEndTag( "", tagName );
 			}
 
 			// 一元标签：空元素 || 匹配到"/"结束符
 			unary = empty[ tagName ] || !!unary;
 
+			// 非一元标签，需要记录到stack中，以便之后进行标签闭合
 			if ( !unary )
 				stack.push( tagName );
 			
 			if ( handler.start ) {
 				var attrs = [];
-	
+
+				// 收集开始标签上的属性键值对
 				rest.replace(attr, function(match, name) {
 				  // 属性的值为
           // 1、双引号中的值
@@ -172,24 +185,26 @@
 					attrs.push({
 						name: name,
 						value: value,
-            // 替换以`"`开头或不含`\"`的字符
-            // TODO 正则优先级：[^\]斜杠会把]转义为字符"]"，导致表达式不正确，因此要先用\把斜杠转义为字符：[^\\]
-            // TODO 纠正下：5.引用类型.md 212行
+            // 替换未经转义的`"`（以`"`开头的情况也要考虑进去），手动将其转义为`\"`
+            // 由于正则优先级的关系，`[^\]`中的斜杠会把`]`转义为字符意义的"]"，导致表达式不正确，因此要先用`\\`把斜杠转义为字符：[^\\]
 						escaped: value.replace(/(^|[^\\])"/g, '$1\\\"') //"
 					});
 				});
-	
+
+				// 将开始标签的相关参数传给start回调函数处理
 				if ( handler.start )
 					handler.start( tagName, attrs, unary );
 			}
 		}
 
-		function parseEndTag( tag, tagName ) {
+    // 解析结束标签（对stack数组进行出栈操作）
+    function parseEndTag( tag, tagName ) {
 			// If no tag name is provided, clean shop
 			if ( !tagName )
 				var pos = 0;
 				
 			// Find the closest opened tag of the same type
+      // 在stack数组中，从后往前找到最接近的标签
 			else
 				for ( var pos = stack.length - 1; pos >= 0; pos-- )
 					if ( stack[ pos ] == tagName )
@@ -197,11 +212,13 @@
 			
 			if ( pos >= 0 ) {
 				// Close all the open elements, up the stack
+        // 闭合stack数组中找到的标签，以及之后的所有标签（之后的所有标签是该标签的子元素。子元素被父元素包裹，因此该标签闭合了，子元素肯定也要闭合）
 				for ( var i = stack.length - 1; i >= pos; i-- )
 					if ( handler.end )
 						handler.end( stack[ i ] );
 				
 				// Remove the open elements from the stack
+        // 移除掉刚刚处理的标签
 				stack.length = pos;
 			}
 		}
