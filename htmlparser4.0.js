@@ -29,7 +29,7 @@
 	// Regular Expressions for parsing tags and attributes
 	var startTag = /^<([-A-Za-z0-9_]+)((?:\s+\w+(?:\s*=\s*(?:(?:"[^"]*")|(?:'[^']*')|[^>\s]+))?)*)\s*(\/?)>/,
 		endTag = /^<\/([-A-Za-z0-9_]+)[^>]*>/,
-    // TODO 没明白属性值的判断(?:\\.|[^"])*)为啥要加上\\.
+		// TODO 没明白属性值的判断(?:\\.|[^"])*)为啥要加上\\.，个人认为不用加
 		attr = /([-A-Za-z0-9_]+)(?:\s*=\s*(?:(?:"((?:\\.|[^"])*)")|(?:'((?:\\.|[^'])*)')|([^>\s]+)))?/g;
 		
 	// Empty Elements - HTML 4.01
@@ -65,7 +65,7 @@
 			chars = true;
 
 			// Make sure we're not in a script or style element
-      // 确保stack数组最后一个值为空 || 不为script、style，则进入下述if条件
+      // stack数组为空或者最后一个值为空 || 不为script、style，则进入下述if条件
 			if ( !stack.last() || !special[ stack.last() ] ) {
 
 			  // 按顺序从左往右解析字符串，有可能遇到：
@@ -119,6 +119,8 @@
 				}
 
 			} else {
+				debugger
+				// TODO 这里的\/转成字面量模式之后为///，不会造成正则失败么？看看规范？难道说RegExp()中的字符直接等于字面量，因此实际上是/\//？
 				html = html.replace(new RegExp("(.*)<\/" + stack.last() + "[^>]*>"), function(all, text){
 					text = text.replace(/<!--(.*?)-->/g, "$1")
 						.replace(/<!\[CDATA\[(.*?)]]>/g, "$1");
