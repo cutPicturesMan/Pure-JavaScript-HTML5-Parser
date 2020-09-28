@@ -56,7 +56,8 @@
 	var special = makeMap("script,style");
 
 	var HTMLParser = this.HTMLParser = function( html, handler ) {
-		var index, chars, match, stack = [], last = html;
+    // stack数组专门用来解析双标签（开始标签、结束标签），只要stack数组有值，则表示当前正处于解析双标签的内容中
+    var index, chars, match, stack = [], last = html;
 		stack.last = function(){
 			return this[ this.length - 1 ];
 		};
@@ -65,12 +66,13 @@
 			chars = true;
 
 			// Make sure we're not in a script or style element
-      // stack数组为空或者最后一个值为空 || 不为script、style，则进入下述if条件
-			if ( !stack.last() || !special[ stack.last() ] ) {
+      // 排除解析<style>、<script>标签里的内容的情况，下面的条件判断可以看作是!(stack.last() && special[ stack.last() ])
+      if ( !stack.last() || !special[ stack.last() ] ) {
 
 			  // 按顺序从左往右解析字符串中的节点，匹配到了则在字符串中移除，并调用对应的处理函数，可能遇到的标签如下：
         // 1、开始标签、结束标签、注释标签：匹配到任意标签，则进行解析，解析完毕之后再次进入while循环
         // 2、文本节点：如果没匹配到情况1的3种标签，则都当作文本节点处理
+        // 3、非法标签：不解析，放到最后抛出错误
 
         // Q：if中为何不直接用正则startTag、endTag进行精确匹配？
         // A：
@@ -128,6 +130,8 @@
 				}
 
 			} else {
+        // 将<script>、<style>标签的内容直到结束标签都替换为空字符串，并在最后将其开始标签出栈
+
         // new RegExp()处理字符串之前会执行常见的转义序列替换，这里的\/并不是转义序列，因此反斜杠会忽略
 				html = html.replace(new RegExp("(.*)<\/" + stack.last() + "[^>]*>"), function(all, text){
 					text = text.replace(/<!--(.*?)-->/g, "$1")
@@ -142,6 +146,7 @@
 				parseEndTag( "", stack.last() );
 			}
 
+			// 经过上述流程之后，如果前后字符串没变，则表示解析失败，字符串不是合法的html字符串
 			if ( html == last )
 				throw "Parse Error: " + html;
 			last = html;
