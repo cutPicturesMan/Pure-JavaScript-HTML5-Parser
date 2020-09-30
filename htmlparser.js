@@ -84,10 +84,12 @@
 	// Regular Expressions for parsing tags and attributes
 	var startTag = /^<([-A-Za-z0-9_]+)((?:\s+[a-zA-Z_:][-a-zA-Z0-9_:.]*(?:\s*=\s*(?:(?:"[^"]*")|(?:'[^']*')|[^>\s]+))?)*)\s*(\/?)>/,
 		endTag = /^<\/([-A-Za-z0-9_]+)[^>]*>/,
-		attr = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\s*=\s*(?:(?:"((?:\\.|[^"])*)")|(?:'((?:\\.|[^'])*)')|([^>\s]+)))?/g;
+    // TODO 没明白属性值的判断(?:\\.|[^"])*)为啥要加上\\.，个人认为不用加
+    attr = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\s*=\s*(?:(?:"((?:\\.|[^"])*)")|(?:'((?:\\.|[^'])*)')|([^>\s]+)))?/g;
 
 	// Empty Elements - HTML 5
-	var empty = makeMap("area,base,basefont,br,col,frame,hr,img,input,link,meta,param,embed,command,keygen,source,track,wbr");
+  // 空元素：不能存在子节点（内嵌的元素或者元素内的文本）的元素
+  var empty = makeMap("area,base,basefont,br,col,frame,hr,img,input,link,meta,param,embed,command,keygen,source,track,wbr");
 
 	// Block Elements - HTML 5
 	var block = makeMap("a,address,article,applet,aside,audio,blockquote,button,canvas,center,dd,del,dir,div,dl,dt,fieldset,figcaption,figure,footer,form,frameset,h1,h2,h3,h4,h5,h6,header,hgroup,hr,iframe,ins,isindex,li,map,menu,noframes,noscript,object,ol,output,p,pre,section,script,table,tbody,td,tfoot,th,thead,tr,ul,video");
@@ -97,16 +99,20 @@
 
 	// Elements that you can, intentionally, leave open
 	// (and which close themselves)
-	var closeSelf = makeMap("colgroup,dd,dt,li,options,p,td,tfoot,th,thead,tr");
+  // 自闭标签：可以故意保持元素打开状态，其会自行闭合
+  var closeSelf = makeMap("colgroup,dd,dt,li,options,p,td,tfoot,th,thead,tr");
 
 	// Attributes that have their values filled in disabled="disabled"
-	var fillAttrs = makeMap("checked,compact,declare,defer,disabled,ismap,multiple,nohref,noresize,noshade,nowrap,readonly,selected");
+  // 属性的value值与key相同
+  var fillAttrs = makeMap("checked,compact,declare,defer,disabled,ismap,multiple,nohref,noresize,noshade,nowrap,readonly,selected");
 
 	// Special Elements (can contain anything)
-	var special = makeMap("script,style");
+  // 特殊的元素：可以包含任何东西
+  var special = makeMap("script,style");
 
 	var HTMLParser = this.HTMLParser = function (html, handler) {
-		var index, chars, match, stack = [], last = html;
+    // stack数组专门用来解析双标签（开始标签、结束标签），只要stack数组有值，则表示当前正处于解析双标签的内容中
+    var index, chars, match, stack = [], last = html;
 		stack.last = function () {
 			return this[this.length - 1];
 		};
@@ -115,14 +121,27 @@
 			chars = true;
 
 			// Make sure we're not in a script or style element
-			if (!stack.last() || !special[stack.last()]) {
+      // 排除解析<style>、<script>标签里的内容的情况，下面的条件判断可以看作是!(stack.last() && special[ stack.last() ])
+      if (!stack.last() || !special[stack.last()]) {
+        // 按顺序从左往右解析字符串中的节点，匹配到了则在字符串中移除，并调用对应的处理函数，可能遇到的标签如下：
+        // 1、开始标签、结束标签、注释标签：匹配到任意标签，则进行解析，解析完毕之后再次进入while循环
+        // 2、文本节点：如果没匹配到情况1的3种标签，则都当作文本节点处理
+        // 3、非法标签：不解析，放到最后抛出错误
+
+        // Q：if中为何不直接用正则startTag、endTag进行精确匹配？
+        // A：
+        // 如果精确匹配，则按顺序进行判断评论标签、结束标签、开始标签，最后为文本标签。每次判断都用正则，文本标签要经过3次正则判断，耗时太久
+        // 如果模糊匹配，则
+        // 1、由于评论标签、结束标签、开始标签三者的开头部分为互斥关系，因此先用indexOf模糊判断是三者标签的哪一种，速度更快
+        // 2、再用正则精确判断该标签是三者中的标签，还是文本标签（文本标签有可能包含这三者的开头），这样文本标签只要1次正则就能判断出来
 
 				// Comment
 				if (html.indexOf("<!--") == 0) {
 					index = html.indexOf("-->");
 
 					if (index >= 0) {
-						if (handler.comment)
+            // 注释标签是单标签，匹配到之后无需额外处理，直接传给回调函数即可
+            if (handler.comment)
 							handler.comment(html.substring(4, index));
 						html = html.substring(index + 3);
 						chars = false;
@@ -140,6 +159,8 @@
 
 					// start tag
 				} else if (html.indexOf("<") == 0) {
+          // Q：开始标签为何放在注释标签、结束标签之后匹配
+          // A：因为注释标签、结束标签都是"<"开头的，判断不出来到底可能是哪种标签
 					match = html.match(startTag);
 
 					if (match) {
@@ -152,14 +173,19 @@
 				if (chars) {
 					index = html.indexOf("<");
 
-					var text = index < 0 ? html : html.substring(0, index);
+          // 剩余的html字符串是否不存在节点 ? 不存在，说明都是文本节点 : 存在，则截取文本节点
+          var text = index < 0 ? html : html.substring(0, index);
 					html = index < 0 ? "" : html.substring(index);
 
-					if (handler.chars)
+          // 文本节点是单节点，匹配到之后无需额外处理，直接传给回调函数即可
+          if (handler.chars)
 						handler.chars(text);
 				}
 
 			} else {
+        // 将<script>、<style>标签的内容直到结束标签都替换为空字符串，并在最后将其开始标签出栈
+
+        // new RegExp()处理字符串之前会执行常见的转义序列替换，这里的\/并不是转义序列，因此反斜杠会忽略
 				html = html.replace(new RegExp("([\\s\\S]*?)<\/" + stack.last() + "[^>]*>"), function (all, text) {
 					text = text.replace(/<!--([\s\S]*?)-->|<!\[CDATA\[([\s\S]*?)]]>/g, "$1$2");
 					if (handler.chars)
@@ -171,7 +197,8 @@
 				parseEndTag("", stack.last());
 			}
 
-			if (html == last)
+      // 经过上述流程之后，如果前后字符串没变，则表示解析失败，字符串不是合法的html字符串
+      if (html == last)
 				throw "Parse Error: " + html;
 			last = html;
 		}
@@ -179,64 +206,87 @@
 		// Clean up any remaining tags
 		parseEndTag();
 
-		function parseStartTag(tag, tagName, rest, unary) {
+    // 解析开始标签
+    function parseStartTag(tag, tagName, rest, unary) {
 			tagName = tagName.toLowerCase();
 
+      // 自动补齐stack中所有内联元素的结束标签
+      // 唯一能自动补齐结束标签的情况是：遇到块元素的开始标签时，还有未补全的内联元素
+      // 这是因为内联元素不能包裹块元素，所以要将其补齐
 			if (block[tagName]) {
-				while (stack.last() && inline[stack.last()]) {
-					parseEndTag("", stack.last());
+        // stack数组最后一个元素有值 && 是内联元素
+        while (stack.last() && inline[stack.last()]) {
+          // 自动补全结束标签
+          parseEndTag("", stack.last());
 				}
 			}
 
+      // 自动补齐stack中自闭合元素的结束标签
+      // 当自闭合标签遇到相邻未闭合的自闭合标签，可以手动将其闭合
 			if (closeSelf[tagName] && stack.last() == tagName) {
 				parseEndTag("", tagName);
 			}
 
-			unary = empty[tagName] || !!unary;
+      // 一元标签：空元素 || 匹配到"/"结束符
+      unary = empty[tagName] || !!unary;
 
-			if (!unary)
+      // 非一元标签，需要记录到stack中，以便之后进行标签闭合
+      if (!unary)
 				stack.push(tagName);
 
 			if (handler.start) {
 				var attrs = [];
 
-				rest.replace(attr, function (match, name) {
+        // 收集开始标签上的属性键值对
+        rest.replace(attr, function (match, name) {
+          // 属性的值为
+          // 1、双引号中的值
 					var value = arguments[2] ? arguments[2] :
-						arguments[3] ? arguments[3] :
-						arguments[4] ? arguments[4] :
-						fillAttrs[name] ? name : "";
+            // 2、单引号中的值
+            arguments[3] ? arguments[3] :
+            // 3、无引号中的值
+            arguments[4] ? arguments[4] :
+            // 4、没有值，则判断是否是需要将值与key保持相同
+            fillAttrs[name] ? name : "";
 
 					attrs.push({
 						name: name,
 						value: value,
+            // 替换未经转义的`"`（以`"`开头的情况也要考虑进去），手动将其转义为`\"`
+            // 由于正则优先级的关系，`[^\]`中的斜杠会把`]`转义为字符意义的"]"，导致表达式不正确，因此要先用`\\`把斜杠转义为字符：[^\\]
 						escaped: value.replace(/(^|[^\\])"/g, '$1\\\"') //"
 					});
 				});
 
-				if (handler.start)
+        // 将开始标签的相关参数传给start回调函数处理
+        if (handler.start)
 					handler.start(tagName, attrs, unary);
 			}
 		}
 
-		function parseEndTag(tag, tagName) {
+    // 解析结束标签（对stack数组进行出栈操作）
+    function parseEndTag(tag, tagName) {
 			// If no tag name is provided, clean shop
 			if (!tagName)
 				var pos = 0;
 
 				// Find the closest opened tag of the same type
-			else
+        // 在stack数组中，从后往前找到最接近的标签
+      else
 				for (var pos = stack.length - 1; pos >= 0; pos--)
 					if (stack[pos] == tagName)
 						break;
 
 			if (pos >= 0) {
 				// Close all the open elements, up the stack
-				for (var i = stack.length - 1; i >= pos; i--)
+        // 闭合stack数组中找到的标签，以及之后的所有标签（之后的所有标签是该标签的子元素。子元素被父元素包裹，因此该标签闭合了，子元素肯定也要闭合）
+        for (var i = stack.length - 1; i >= pos; i--)
 					if (handler.end)
 						handler.end(stack[i]);
 
 				// Remove the open elements from the stack
-				stack.length = pos;
+        // 移除掉刚刚处理的标签
+        stack.length = pos;
 			}
 		}
 	};
@@ -358,6 +408,7 @@
 		return doc;
 	};
 
+  // 'a,b' -> [a, b] -> {a: true, b: true}
 	function makeMap(str) {
 		var obj = {}, items = str.split(",");
 		for (var i = 0; i < items.length; i++)
