@@ -185,7 +185,9 @@
         // 将<script>、<style>标签的内容直到结束标签都替换为空字符串，并在最后将其开始标签出栈
 
         // new RegExp()处理字符串之前会执行常见的转义序列替换，这里的\/并不是转义序列，因此反斜杠会忽略
+        // 这里有可能是多行匹配，因此要用\s\S，而不能是.*
 				html = html.replace(new RegExp("([\\s\\S]*?)<\/" + stack.last() + "[^>]*>"), function (all, text) {
+				  // 将<script>、<style>标签内的注释部分提取出来，放入chars回调函数
 					text = text.replace(/<!--([\s\S]*?)-->|<!\[CDATA\[([\s\S]*?)]]>/g, "$1$2");
 					if (handler.chars)
 						handler.chars(text);
